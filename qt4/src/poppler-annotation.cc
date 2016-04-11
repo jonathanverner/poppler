@@ -124,7 +124,7 @@ QDomElement AnnotationUtils::findChildElement( const QDomNode & parentNode,
 //BEGIN Annotation implementation
 AnnotationPrivate::AnnotationPrivate()
     : flags( 0 ), revisionScope ( Annotation::Root ),
-    revisionType ( Annotation::None ), pdfAnnot ( 0 ), pdfPage ( 0 ),
+    revisionType ( Annotation::None ), replyTo(0), pdfAnnot ( 0 ), pdfPage ( 0 ),
     parentDoc ( 0 )
 {
 }
@@ -135,8 +135,10 @@ void AnnotationPrivate::addRevision( Annotation *ann, Annotation::RevScope scope
     revisions.append( ann->d_ptr->makeAlias() );
 
     /* Set revision properties */
-    revisionScope = scope;
-    revisionType = type;
+    ann->d_ptr->revisionScope = scope;
+    ann->d_ptr->revisionType = type;
+    ann->d_ptr->replyTo = makeAlias();
+
 }
 
 AnnotationPrivate::~AnnotationPrivate()
@@ -1170,6 +1172,29 @@ void AnnotationPrivate::addAnnotationToPage(::Page *pdfPage, DocumentData *doc, 
     Annot *nativeAnnot = ann->d_ptr->createNativeAnnot(pdfPage, doc);
     Q_ASSERT(nativeAnnot);
     pdfPage->addAnnot(nativeAnnot);
+
+    // If the annotation is a reply to (revision of) a different annotation
+    // which is already present on the page, update the inReplyTo field
+    // of this annotation. If it is not present, the inReplyTo field will
+    // be set when the target annotation is added to the page (the code below)
+    Annotation *replyTo = ann->replyTo();
+    if ( replyTo && replyTo->d_ptr->pdfAnnot != 0) {
+        AnnotMarkup *markupAnn = dynamic_cast<AnnotMarkup*>(nativeAnnot);
+        if (markupAnn)
+            markupAnn->setInReplyTo(replyTo->d_ptr->pdfAnnot);
+    }
+
+    // Go through all revisions and, if they are present on the page,
+    // update their inReplyTo fields
+    foreach (Annotation *rev, ann->revisions())
+    {
+        if ( rev->d_ptr->pdfAnnot ) {
+            AnnotMarkup *markupAnn = dynamic_cast<AnnotMarkup*>(rev->d_ptr->pdfAnnot);
+            if (markupAnn)
+                markupAnn->setInReplyTo(nativeAnnot);
+        }
+    }
+
 }
 
 void AnnotationPrivate::removeAnnotationFromPage(::Page *pdfPage, const Annotation * ann)
@@ -1571,6 +1596,7 @@ Annotation::Annotation( AnnotationPrivate &dd, const QDomNode &annNode )
 
 void Annotation::storeBaseAnnotationProperties( QDomNode & annNode, QDomDocument & document ) const
 {
+
     // create [base] element of the annotation node
     QDomElement e = document.createElement( "base" );
     annNode.appendChild( e );
@@ -1671,6 +1697,17 @@ void Annotation::storeBaseAnnotationProperties( QDomNode & annNode, QDomDocument
         }
     }
 
+
+    const Annotation *inReplyTo = replyTo();
+
+    if ( inReplyTo )
+    {
+        e.setAttribute("inReplyTo",inReplyTo->uniqueName());
+        e.setAttribute( "revScope", (int)revisionScope() );
+        e.setAttribute( "revType", (int)revisionType() );
+    }
+
+
     const QList<Annotation*> revs = revisions();
 
     // create [revision] element of the annotation node (if any)
@@ -1683,8 +1720,8 @@ void Annotation::storeBaseAnnotationProperties( QDomNode & annNode, QDomDocument
         QDomElement r = document.createElement( "revision" );
         annNode.appendChild( r );
         // set element attributes
-        r.setAttribute( "revScope", (int)rev->revisionScope() );
-        r.setAttribute( "revType", (int)rev->revisionType() );
+        //r.setAttribute( "revScope", (int)rev->revisionScope() );
+        //r.setAttribute( "revType", (int)rev->revisionType() );
         // use revision as the annotation element, so fill it up
         AnnotationUtils::storeAnnotation( rev, r, document );
         delete rev;
@@ -2150,6 +2187,39 @@ Annotation::RevType Annotation::revisionType() const
 
     return Annotation::None;
 }
+
+Annotation* Annotation::replyTo() const
+{
+    Q_D( const Annotation );
+    if (!d->pdfAnnot)
+        return d->replyTo;
+
+    const AnnotMarkup *markupann = dynamic_cast<const AnnotMarkup*>(d->pdfAnnot);
+
+    if (markupann && markupann->getInReplyToID() != 0)
+    {
+        return AnnotationPrivate::findAnnotation( d->pdfPage, d->parentDoc, markupann->getInReplyToID() );
+    }
+
+    return 0;
+}
+
+void Annotation::setReplyTo(Annotation* annot)
+{
+    Q_D( Annotation );
+    if (!d->pdfAnnot)
+        d->replyTo = annot->d_ptr->makeAlias();
+    else
+    {
+        AnnotMarkup *markupann = dynamic_cast<AnnotMarkup*>(d->pdfAnnot);
+
+        if (markupann && annot->d_ptr->pdfAnnot) {
+            markupann->setInReplyTo(annot->d_ptr->pdfAnnot);
+        }
+    }
+}
+
+
 
 QList<Annotation*> Annotation::revisions() const
 {

@@ -384,6 +384,16 @@ class POPPLER_QT4_EXPORT Annotation
     RevType revisionType() const;   // None
 
     /**
+     * Returns the annotation this is a revision of
+     */
+    Annotation *replyTo() const;
+
+    /**
+     * Makes this annotation a reply to annotation @p annot
+     */
+    void setReplyTo( Annotation *annot);
+
+    /**
      * Returns the revisions of this annotation
      *
      * \note The caller owns the returned annotations and they should

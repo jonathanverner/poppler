@@ -70,6 +70,7 @@ class AnnotationPrivate : public QSharedData
         /* revisions */
         Annotation::RevScope revisionScope;
         Annotation::RevType revisionType;
+        Annotation* replyTo;
         QList<Annotation*> revisions;
 
         /* After this call, the Annotation object will behave like a wrapper for
@@ -106,6 +107,7 @@ class AnnotationPrivate : public QSharedData
 
         /* Add given annotation to given page */
         static void addAnnotationToPage(::Page *pdfPage, DocumentData *doc, const Annotation * ann);
+
 
         /* Remove annotation from page and destroy ann */
         static void removeAnnotationFromPage(::Page *pdfPage, const Annotation * ann);
