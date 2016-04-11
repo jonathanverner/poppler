@@ -743,6 +743,7 @@ public:
   void setLabel(GooString *new_label);
   void setOpacity(double opacityA);
   void setDate(GooString *new_date);
+  void setInReplyTo(Annot *a);
 
 protected:
   virtual void removeReferencedObjects();

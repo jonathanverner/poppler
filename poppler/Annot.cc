@@ -2149,6 +2149,16 @@ void AnnotMarkup::setDate(GooString *new_date) {
   update ("CreationDate", &obj1);
 }
 
+void AnnotMarkup::setInReplyTo(Annot* a)
+{
+    if ( a ) inReplyTo = a->getRef();
+    else {
+        inReplyTo.num = 0;
+        inReplyTo.gen = 0;
+    }
+}
+
+
 void AnnotMarkup::removeReferencedObjects() {
   Page *pageobj = doc->getPage(page);
   assert(pageobj != NULL); // We're called when removing an annot from a page
