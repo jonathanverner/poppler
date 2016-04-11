@@ -366,6 +366,360 @@ AnnotPath * AnnotationPrivate::toAnnotPath(const QLinkedList<QPointF> &list) con
     return new AnnotPath(ac, count);
 }
 
+Annotation* AnnotationPrivate::findAnnotationByName(::Page *pdfPage, DocumentData *doc, const QString &name)
+{
+    Annots* annots = pdfPage->getAnnots();
+    const uint numAnnotations = annots->getNumAnnots();
+
+    for ( uint j = 0; j < numAnnotations; j++ )
+    {
+        // get the j-th annotation
+        Annot *ann = annots->getAnnot( j );
+        if ( QString::fromLatin1( ann->getName()->getCString() ) == name )
+        {
+            Annotation *ret = AnnotationPrivate::fromNative(ann,doc);
+            ret->d_ptr->tieToNativeAnnot(ann, pdfPage, doc);
+            return ret;
+        }
+    }
+    return 0;
+
+}
+
+Annotation* AnnotationPrivate::findAnnotation(::Page *pdfPage, DocumentData *doc, int annotID)
+{
+
+    Annots* annots = pdfPage->getAnnots();
+    const uint numAnnotations = annots->getNumAnnots();
+
+    for ( uint j = 0; j < numAnnotations; j++ )
+    {
+        // get the j-th annotation
+        Annot *ann = annots->getAnnot( j );
+        if ( ann->getRef().num == annotID ) {
+            Annotation *ret = AnnotationPrivate::fromNative(ann,doc);
+            ret->d_ptr->tieToNativeAnnot(ann, pdfPage, doc);
+            return ret;
+        }
+    }
+    return 0;
+
+}
+
+Annotation *AnnotationPrivate::fromNative(Annot *ann, DocumentData *doc)
+{
+    /* Create Annotation of the right subclass */
+    Annotation * annotation = 0;
+    Annot::AnnotSubtype subType = ann->getType();
+
+    switch ( subType )
+    {
+        case Annot::typeText:
+            annotation = new TextAnnotation(TextAnnotation::Linked);
+            break;
+        case Annot::typeFreeText:
+            annotation = new TextAnnotation(TextAnnotation::InPlace);
+            break;
+        case Annot::typeLine:
+            annotation = new LineAnnotation(LineAnnotation::StraightLine);
+            break;
+        case Annot::typePolygon:
+        case Annot::typePolyLine:
+            annotation = new LineAnnotation(LineAnnotation::Polyline);
+            break;
+        case Annot::typeSquare:
+        case Annot::typeCircle:
+            annotation = new GeomAnnotation();
+            break;
+        case Annot::typeHighlight:
+        case Annot::typeUnderline:
+        case Annot::typeSquiggly:
+        case Annot::typeStrikeOut:
+            annotation = new HighlightAnnotation();
+            break;
+        case Annot::typeStamp:
+            annotation = new StampAnnotation();
+            break;
+        case Annot::typeInk:
+            annotation = new InkAnnotation();
+            break;
+        case Annot::typeLink: /* TODO: Move logic to getters */
+        {
+            // parse Link params
+            AnnotLink * linkann = static_cast< AnnotLink * >( ann );
+            LinkAnnotation * l = new LinkAnnotation();
+            annotation = l;
+
+            // -> hlMode
+            l->setLinkHighlightMode( (LinkAnnotation::HighlightMode)linkann->getLinkEffect() );
+
+            // -> link region
+            // TODO
+
+            // reading link action
+            if ( linkann->getAction() )
+            {
+                Link * popplerLink = PageData::convertLinkActionToLink( linkann->getAction(), doc, QRectF() );
+                if ( popplerLink )
+                {
+                    l->setLinkDestination( popplerLink );
+                }
+            }
+            break;
+        }
+        case Annot::typeCaret:
+            annotation = new CaretAnnotation();
+            break;
+        case Annot::typeFileAttachment: /* TODO: Move logic to getters */
+        {
+            AnnotFileAttachment * attachann = static_cast< AnnotFileAttachment * >( ann );
+            FileAttachmentAnnotation * f = new FileAttachmentAnnotation();
+            annotation = f;
+            // -> fileIcon
+            f->setFileIconName( QString::fromLatin1( attachann->getName()->getCString() ) );
+            // -> embeddedFile
+            FileSpec *filespec = new FileSpec( attachann->getFile() );
+            f->setEmbeddedFile( new EmbeddedFile( *new EmbeddedFileData( filespec ) ) );
+            break;
+        }
+        case Annot::typeSound: /* TODO: Move logic to getters */
+        {
+            AnnotSound * soundann = static_cast< AnnotSound * >( ann );
+            SoundAnnotation * s = new SoundAnnotation();
+            annotation = s;
+
+            // -> soundIcon
+            s->setSoundIconName( QString::fromLatin1( soundann->getName()->getCString() ) );
+            // -> sound
+            s->setSound( new SoundObject( soundann->getSound() ) );
+            break;
+        }
+        case Annot::typeMovie: /* TODO: Move logic to getters */
+        {
+            AnnotMovie * movieann = static_cast< AnnotMovie * >( ann );
+            MovieAnnotation * m = new MovieAnnotation();
+            annotation = m;
+
+            // -> movie
+            MovieObject *movie = new MovieObject( movieann );
+            m->setMovie( movie );
+            // -> movieTitle
+            GooString * movietitle = movieann->getTitle();
+            if ( movietitle )
+                m->setMovieTitle( QString::fromLatin1( movietitle->getCString() ) );
+            break;
+        }
+        case Annot::typeScreen:
+        {
+            AnnotScreen * screenann = static_cast< AnnotScreen * >( ann );
+            if (!screenann->getAction())
+                break;
+            ScreenAnnotation * s = new ScreenAnnotation();
+            annotation = s;
+
+            // -> screen
+            Link * popplerLink = PageData::convertLinkActionToLink( screenann->getAction(), doc, QRectF() );
+            s->setAction( static_cast<Poppler::LinkRendition *>(popplerLink) );
+
+            // -> screenTitle
+            GooString * screentitle = screenann->getTitle();
+            if ( screentitle )
+                s->setScreenTitle( UnicodeParsedString( screentitle ) );
+            break;
+        }
+        case Annot::typePopup:
+            break; // popups are parsed by Annotation's window() getter
+        case Annot::typeUnknown:
+            break; // special case for ignoring unknown annotations
+        case Annot::typeWidget:
+            annotation = new WidgetAnnotation();
+            break;
+        case Annot::typeRichMedia:
+        {
+            const AnnotRichMedia * annotRichMedia = static_cast< AnnotRichMedia * >( ann );
+
+            RichMediaAnnotation *richMediaAnnotation = new RichMediaAnnotation;
+
+            const AnnotRichMedia::Settings *annotSettings = annotRichMedia->getSettings();
+            if ( annotSettings ) {
+                RichMediaAnnotation::Settings *settings = new RichMediaAnnotation::Settings;
+
+                if ( annotSettings->getActivation() ) {
+                    RichMediaAnnotation::Activation *activation = new RichMediaAnnotation::Activation;
+
+                    switch ( annotSettings->getActivation()->getCondition() )
+                    {
+                        case AnnotRichMedia::Activation::conditionPageOpened:
+                            activation->setCondition( RichMediaAnnotation::Activation::PageOpened );
+                            break;
+                        case AnnotRichMedia::Activation::conditionPageVisible:
+                            activation->setCondition( RichMediaAnnotation::Activation::PageVisible );
+                            break;
+                        case AnnotRichMedia::Activation::conditionUserAction:
+                            activation->setCondition( RichMediaAnnotation::Activation::UserAction );
+                            break;
+                    }
+
+                    settings->setActivation( activation );
+                }
+
+                if ( annotSettings->getDeactivation() ) {
+                    RichMediaAnnotation::Deactivation *deactivation = new RichMediaAnnotation::Deactivation;
+
+                    switch ( annotSettings->getDeactivation()->getCondition() )
+                    {
+                        case AnnotRichMedia::Deactivation::conditionPageClosed:
+                            deactivation->setCondition( RichMediaAnnotation::Deactivation::PageClosed );
+                            break;
+                        case AnnotRichMedia::Deactivation::conditionPageInvisible:
+                            deactivation->setCondition( RichMediaAnnotation::Deactivation::PageInvisible );
+                            break;
+                        case AnnotRichMedia::Deactivation::conditionUserAction:
+                            deactivation->setCondition( RichMediaAnnotation::Deactivation::UserAction );
+                            break;
+                    }
+
+                    settings->setDeactivation( deactivation );
+                }
+
+                richMediaAnnotation->setSettings( settings );
+            }
+
+            const AnnotRichMedia::Content *annotContent = annotRichMedia->getContent();
+            if ( annotContent ) {
+                RichMediaAnnotation::Content *content = new RichMediaAnnotation::Content;
+
+                const int configurationsCount = annotContent->getConfigurationsCount();
+                if ( configurationsCount > 0 ) {
+                    QList< RichMediaAnnotation::Configuration* > configurations;
+
+                    for ( int i = 0; i < configurationsCount; ++i ) {
+                        const AnnotRichMedia::Configuration *annotConfiguration = annotContent->getConfiguration( i );
+                        if ( !annotConfiguration )
+                            continue;
+
+                        RichMediaAnnotation::Configuration *configuration = new RichMediaAnnotation::Configuration;
+
+                        if ( annotConfiguration->getName() )
+                            configuration->setName( UnicodeParsedString( annotConfiguration->getName() ) );
+
+                        switch ( annotConfiguration->getType() )
+                        {
+                            case AnnotRichMedia::Configuration::type3D:
+                                configuration->setType( RichMediaAnnotation::Configuration::Type3D );
+                                break;
+                            case AnnotRichMedia::Configuration::typeFlash:
+                                configuration->setType( RichMediaAnnotation::Configuration::TypeFlash );
+                                break;
+                            case AnnotRichMedia::Configuration::typeSound:
+                                configuration->setType( RichMediaAnnotation::Configuration::TypeSound );
+                                break;
+                            case AnnotRichMedia::Configuration::typeVideo:
+                                configuration->setType( RichMediaAnnotation::Configuration::TypeVideo );
+                                break;
+                        }
+
+                        const int instancesCount = annotConfiguration->getInstancesCount();
+                        if ( instancesCount > 0 ) {
+                            QList< RichMediaAnnotation::Instance* > instances;
+
+                            for ( int j = 0; j < instancesCount; ++j ) {
+                                const AnnotRichMedia::Instance *annotInstance = annotConfiguration->getInstance( j );
+                                if ( !annotInstance )
+                                    continue;
+
+                                RichMediaAnnotation::Instance *instance = new RichMediaAnnotation::Instance;
+
+                                switch ( annotInstance->getType() )
+                                {
+                                    case AnnotRichMedia::Instance::type3D:
+                                        instance->setType( RichMediaAnnotation::Instance::Type3D );
+                                        break;
+                                    case AnnotRichMedia::Instance::typeFlash:
+                                        instance->setType( RichMediaAnnotation::Instance::TypeFlash );
+                                        break;
+                                    case AnnotRichMedia::Instance::typeSound:
+                                        instance->setType( RichMediaAnnotation::Instance::TypeSound );
+                                        break;
+                                    case AnnotRichMedia::Instance::typeVideo:
+                                        instance->setType( RichMediaAnnotation::Instance::TypeVideo );
+                                        break;
+                                }
+
+                                const AnnotRichMedia::Params *annotParams = annotInstance->getParams();
+                                if ( annotParams ) {
+                                    RichMediaAnnotation::Params *params = new RichMediaAnnotation::Params;
+
+                                    if ( annotParams->getFlashVars() )
+                                        params->setFlashVars( UnicodeParsedString( annotParams->getFlashVars() ) );
+
+                                    instance->setParams( params );
+                                }
+
+                                instances.append( instance );
+                            }
+
+                            configuration->setInstances( instances );
+                        }
+
+                        configurations.append( configuration );
+                    }
+
+                    content->setConfigurations( configurations );
+                }
+
+                const int assetsCount = annotContent->getAssetsCount();
+                if ( assetsCount > 0 ) {
+                    QList< RichMediaAnnotation::Asset* > assets;
+
+                    for ( int i = 0; i < assetsCount; ++i ) {
+                        const AnnotRichMedia::Asset *annotAsset = annotContent->getAsset( i );
+                        if ( !annotAsset )
+                            continue;
+
+                        RichMediaAnnotation::Asset *asset = new RichMediaAnnotation::Asset;
+
+                        if ( annotAsset->getName() )
+                            asset->setName( UnicodeParsedString( annotAsset->getName() ) );
+
+                        FileSpec *fileSpec = new FileSpec( annotAsset->getFileSpec() );
+                        asset->setEmbeddedFile( new EmbeddedFile( *new EmbeddedFileData( fileSpec ) ) );
+
+                        assets.append( asset );
+                    }
+
+                    content->setAssets( assets );
+                }
+
+                richMediaAnnotation->setContent( content );
+            }
+
+            annotation = richMediaAnnotation;
+
+            break;
+        }
+        default:
+        {
+            #define CASE_FOR_TYPE( thetype ) \
+        case Annot::type ## thetype: \
+            error(errUnimplemented, -1, "Annotation " #thetype " not supported"); \
+            break;
+            switch ( subType )
+            {
+                CASE_FOR_TYPE( PrinterMark )
+                CASE_FOR_TYPE( TrapNet )
+                CASE_FOR_TYPE( Watermark )
+                CASE_FOR_TYPE( 3D )
+                default: error(errUnimplemented, -1, "Annotation {0:d} not supported", subType);
+            }
+            break;
+            #undef CASE_FOR_TYPE
+        }
+    }
+    return annotation;
+
+}
+
 QList<Annotation*> AnnotationPrivate::findAnnotations(::Page *pdfPage, DocumentData *doc, const QSet<Annotation::SubType> &subtypes, int parentID)
 {
     Annots* annots = pdfPage->getAnnots();

@@ -740,6 +740,11 @@ void Page::addAnnotation( const Annotation *ann )
   AnnotationPrivate::addAnnotationToPage(m_page->page, m_page->parentDoc, ann);
 }
 
+Annotation *Page::findAnnotationByName(const QString &name)
+{
+    return AnnotationPrivate::findAnnotationByName(m_page->page, m_page->parentDoc, name);
+}
+
 void Page::removeAnnotation( const Annotation *ann )
 {
   AnnotationPrivate::removeAnnotationFromPage(m_page->page, ann);

@@ -80,6 +80,8 @@ class AnnotationPrivate : public QSharedData
          * values to that object and ties this Annotation to that object */
         virtual Annot* createNativeAnnot(::Page *destPage, DocumentData *doc) = 0;
 
+        static Annotation *fromNative(Annot* ann, DocumentData *doc);
+
         /* Inited to 0 (i.e. untied annotation) */
         Annot *pdfAnnot;
         ::Page *pdfPage;
@@ -95,6 +97,12 @@ class AnnotationPrivate : public QSharedData
 
         /* Scan page for annotations, parentId=0 searches for root annotations, subtypes empty means all subtypes */
         static QList<Annotation*> findAnnotations(::Page *pdfPage, DocumentData *doc, const QSet<Annotation::SubType> &subtypes, int parentId = 0);
+
+        /* Scan page for annotations with given annotID */
+        static Annotation* findAnnotation(::Page *pdfPage, DocumentData *doc, int annotID);
+
+        /* Scan page for annotations with given name */
+        static Annotation* findAnnotationByName(::Page *pdfPage, DocumentData *doc, const QString &name);
 
         /* Add given annotation to given page */
         static void addAnnotationToPage(::Page *pdfPage, DocumentData *doc, const Annotation * ann);

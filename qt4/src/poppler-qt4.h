@@ -760,6 +760,15 @@ delete it;
 	*/
 	void addAnnotation( const Annotation *ann );
 
+        /**
+         Returns a reference to the annotation on the page with uniquename equal to @p name
+
+         \note Ownership of the annotation object stays with the caller, who can
+               delete it at any time.
+         \since 0.42
+        */
+        Annotation *findAnnotationByName( const QString &name );
+
 	/**
 	 Removes an annotation from the page and destroys the annotation object
 
